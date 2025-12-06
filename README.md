@@ -1,10 +1,6 @@
 # toolbox
 
-Simple browser-based tools and games. All projects run entirely in the browser with no backend required.
-
-## About
-
-Hey, I'm Marvin, a developer who likes building small, practical things. Sometimes it's just easier to whip something up in JavaScript than to download an entire app or deal with complicated software. So here's a bunch of browser tools I made for myself that you might find useful too.
+Hey, I'm Marvin, a developer who likes building practical things. Sometimes it's just easier to whip something up in JavaScript than to download an entire app or deal with complicated software. So here's a bunch of browser tools I made for myself that you might find useful too.
 
 Learn more about me at [marvinvr.ch](https://marvinvr.ch).
 
