@@ -1,0 +1,127 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>toolbox</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.6;
+        padding: 2rem;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin-bottom: 0.5rem;
+        font-size: 2rem;
+      }
+
+      .subtitle {
+        color: #666;
+        margin-bottom: 1rem;
+      }
+
+      .intro {
+        color: #555;
+        margin-bottom: 2.5rem;
+        line-height: 1.7;
+      }
+
+      .intro a {
+        color: #0066cc;
+        text-decoration: none;
+      }
+
+      .intro a:hover {
+        text-decoration: underline;
+      }
+
+      .section-header {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 1rem;
+        margin-top: 2rem;
+        color: #333;
+      }
+
+      .section-header:first-of-type {
+        margin-top: 0;
+      }
+
+      .tools {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-bottom: 2rem;
+      }
+
+      .tool {
+        border: 1px solid #ddd;
+        padding: 1.5rem;
+        border-radius: 4px;
+        text-decoration: none;
+        color: inherit;
+        transition: border-color 0.2s;
+      }
+
+      .tool:hover {
+        border-color: #999;
+      }
+
+      .tool h2 {
+        margin-bottom: 0.5rem;
+        font-size: 1.25rem;
+      }
+
+      .tool p {
+        color: #666;
+        font-size: 0.95rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>toolbox</h1>
+    <p class="subtitle">a collection of simple browser-based tools and games</p>
+
+    <div class="intro">
+      <p>
+        Hey, I'm Marvin, a developer who likes building small, practical things.
+        Sometimes it's just easier to whip something up in JavaScript than to download
+        an entire app or deal with complicated software. So here's a bunch of browser tools
+        I made for myself that you might find useful too.
+      </p>
+      <p style="margin-top: 0.5rem;">
+        <a href="https://marvinvr.ch" target="_blank">About me</a>
+      </p>
+    </div>
+
+    <h3 class="section-header">Tools</h3>
+    <div class="tools">
+      <a href="/thumbnail-generator/" class="tool">
+        <h2>Thumbnail Generator</h2>
+        <p>Create YouTube thumbnails with custom backgrounds and text</p>
+      </a>
+
+      <a href="/vs-image-generator/" class="tool">
+        <h2>VS Image Generator</h2>
+        <p>Make side-by-side comparison images with a VS divider</p>
+      </a>
+    </div>
+
+    <h3 class="section-header">Games</h3>
+    <div class="tools">
+      <a href="/rocket-game/" class="tool">
+        <h2>Rocket Game</h2>
+        <p>3D space exploration game - pilot a rocket through the solar system</p>
+      </a>
+    </div>
+  </body>
+</html>

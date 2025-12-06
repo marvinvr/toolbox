@@ -1,0 +1,310 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Marvin's VS Image Generator</title>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <script defer data-domain="vs-image.marvinvr.ch" src="https://stats.marvinvr.ch/js/script.js"></script>
+  </head>
+  <body>
+    <div class="flex flex-col items-center justify-center min-h-screen p-4 gap-8">
+      <div class="flex flex-col items-center text-center mb-4">
+        <h1 class="text-3xl font-bold mb-2">VS Image Generator</h1>
+        <span class="text-gray-600 text-md">by <a href="https://marvinvr.ch" class="font-semibold hover:text-blue-500">marvinvr</a></span>
+        <p class="text-gray-600 max-w-xl">
+          Upload two images to create a VS comparison image. The left image will face off against the right image with a stylish dividing line.
+        </p>
+      </div>
+
+      <div class="flex flex-col gap-4 w-full max-w-md">
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium">Left Image:</label>
+          <input 
+            type="file" 
+            id="leftImageInput" 
+            accept="image/*"
+            class="p-2 border rounded"
+            onchange="updateLeftImage()"
+          >
+        </div>
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium">Right Image:</label>
+          <input 
+            type="file" 
+            id="rightImageInput" 
+            accept="image/*"
+            class="p-2 border rounded"
+            onchange="updateRightImage()"
+          >
+        </div>
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium">VS Text Style:</label>
+          <select 
+            id="textStyle" 
+            class="p-2 border rounded"
+            onchange="drawVSImage()"
+          >
+            <option value="white">White text with black border</option>
+            <option value="black">Black text with white border</option>
+          </select>
+        </div>
+        <div class="flex flex-col gap-2">
+          <label class="text-sm font-medium">Dividing Line Style:</label>
+          <select 
+            id="lineStyle" 
+            class="p-2 border rounded"
+            onchange="drawVSImage()"
+          >
+            <option value="bordered">White line with black border</option>
+            <option value="black">Plain black line</option>
+          </select>
+        </div>
+        <button 
+          onclick="exportImage()" 
+          class="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 transition-colors disabled:bg-gray-300"
+          id="exportBtn"
+          disabled
+        >
+          Download VS Image
+        </button>
+      </div>
+
+      <div class="w-full max-w-4xl">
+        <canvas 
+          id="vsCanvas" 
+          width="1200" 
+          height="600"
+          class="border border-gray-300 w-full max-w-full"
+          style="max-height: 600px;"
+        ></canvas>
+      </div>
+    </div>
+
+    <script>
+      let leftImage = null;
+      let rightImage = null;
+      const canvas = document.getElementById('vsCanvas');
+      const ctx = canvas.getContext('2d');
+
+      function updateLeftImage() {
+        const fileInput = document.getElementById('leftImageInput');
+        
+        if (fileInput.files && fileInput.files[0]) {
+          const reader = new FileReader();
+          
+          reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+              leftImage = img;
+              drawVSImage();
+              updateExportButton();
+            };
+            img.src = e.target.result;
+          };
+          
+          reader.readAsDataURL(fileInput.files[0]);
+        }
+      }
+
+      function updateRightImage() {
+        const fileInput = document.getElementById('rightImageInput');
+        
+        if (fileInput.files && fileInput.files[0]) {
+          const reader = new FileReader();
+          
+          reader.onload = function(e) {
+            const img = new Image();
+            img.onload = function() {
+              rightImage = img;
+              drawVSImage();
+              updateExportButton();
+            };
+            img.src = e.target.result;
+          };
+          
+          reader.readAsDataURL(fileInput.files[0]);
+        }
+      }
+
+      function updateExportButton() {
+        const exportBtn = document.getElementById('exportBtn');
+        exportBtn.disabled = !(leftImage && rightImage);
+      }
+
+      function drawVSImage() {
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        const canvasWidth = canvas.width;
+        const canvasHeight = canvas.height;
+        
+        // Define the tilted dividing line (slightly tilted to the right)
+        const tiltAngle = 8; // degrees
+        const centerX = canvasWidth * 0.48; // Slightly left of center to give more space to right
+        const lineWidth = 8;
+        
+        // Calculate line positions
+        const topY = 0;
+        const bottomY = canvasHeight;
+        const tiltOffset = Math.tan(tiltAngle * Math.PI / 180) * canvasHeight / 2;
+        
+        const topX = centerX - tiltOffset;
+        const bottomX = centerX + tiltOffset;
+        
+        // Draw left image
+        if (leftImage) {
+          ctx.save();
+          // Create clipping path for left side
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(topX - lineWidth/2, 0);
+          ctx.lineTo(bottomX - lineWidth/2, canvasHeight);
+          ctx.lineTo(0, canvasHeight);
+          ctx.closePath();
+          ctx.clip();
+          
+          // Draw image to fit the clipped area
+          const imgAspect = leftImage.width / leftImage.height;
+          const canvasAspect = (topX + bottomX) / 2 / canvasHeight;
+          
+          let drawWidth, drawHeight, drawX, drawY;
+          if (imgAspect > canvasAspect) {
+            drawHeight = canvasHeight;
+            drawWidth = drawHeight * imgAspect;
+            drawY = 0;
+            drawX = ((topX + bottomX) / 2 - drawWidth) / 2;
+          } else {
+            drawWidth = (topX + bottomX) / 2;
+            drawHeight = drawWidth / imgAspect;
+            drawX = 0;
+            drawY = (canvasHeight - drawHeight) / 2;
+          }
+          
+          ctx.drawImage(leftImage, drawX, drawY, drawWidth, drawHeight);
+          ctx.restore();
+        }
+        
+        // Draw right image
+        if (rightImage) {
+          ctx.save();
+          // Create clipping path for right side
+          ctx.beginPath();
+          ctx.moveTo(topX + lineWidth/2, 0);
+          ctx.lineTo(canvasWidth, 0);
+          ctx.lineTo(canvasWidth, canvasHeight);
+          ctx.lineTo(bottomX + lineWidth/2, canvasHeight);
+          ctx.closePath();
+          ctx.clip();
+          
+          // Draw image to fit the clipped area
+          const imgAspect = rightImage.width / rightImage.height;
+          const rightWidth = canvasWidth - (topX + bottomX) / 2;
+          const canvasAspect = rightWidth / canvasHeight;
+          
+          let drawWidth, drawHeight, drawX, drawY;
+          if (imgAspect > canvasAspect) {
+            drawHeight = canvasHeight;
+            drawWidth = drawHeight * imgAspect;
+            drawY = 0;
+            drawX = (topX + bottomX) / 2 + (rightWidth - drawWidth) / 2;
+          } else {
+            drawWidth = rightWidth;
+            drawHeight = drawWidth / imgAspect;
+            drawX = (topX + bottomX) / 2;
+            drawY = (canvasHeight - drawHeight) / 2;
+          }
+          
+          ctx.drawImage(rightImage, drawX, drawY, drawWidth, drawHeight);
+          ctx.restore();
+        }
+        
+        // Draw the dividing line
+        ctx.save();
+        
+        // Get line style preference
+        const lineStyle = document.getElementById('lineStyle').value;
+        
+        if (lineStyle === 'bordered') {
+          // Draw black borders (wider line)
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = lineWidth + 4;
+          ctx.lineCap = 'butt';
+          ctx.beginPath();
+          ctx.moveTo(topX, topY);
+          ctx.lineTo(bottomX, bottomY);
+          ctx.stroke();
+          
+          // Draw white center line
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = lineWidth;
+          ctx.beginPath();
+          ctx.moveTo(topX, topY);
+          ctx.lineTo(bottomX, bottomY);
+          ctx.stroke();
+        } else {
+          // Draw plain black line
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = lineWidth;
+          ctx.lineCap = 'butt';
+          ctx.beginPath();
+          ctx.moveTo(topX, topY);
+          ctx.lineTo(bottomX, bottomY);
+          ctx.stroke();
+        }
+        
+        ctx.restore();
+        
+        // Draw "VS" text in the center
+        ctx.save();
+        ctx.font = 'bold 96px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        const midX = (topX + bottomX) / 2;
+        const midY = canvasHeight / 2;
+        
+        // Get text style preference
+        const textStyle = document.getElementById('textStyle').value;
+        
+        if (textStyle === 'white') {
+          // White text with black border
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 6;
+          ctx.strokeText('VS', midX, midY);
+          
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText('VS', midX, midY);
+        } else {
+          // Black text with white border
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 6;
+          ctx.strokeText('VS', midX, midY);
+          
+          ctx.fillStyle = '#000000';
+          ctx.fillText('VS', midX, midY);
+        }
+        
+        ctx.restore();
+      }
+
+      function exportImage() {
+        if (!leftImage || !rightImage) return;
+        
+        // Create download link
+        const link = document.createElement('a');
+        link.download = 'vs-comparison.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      }
+
+      // Initialize canvas with placeholder
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#888';
+      ctx.font = '24px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('Upload images to see VS comparison', canvas.width / 2, canvas.height / 2);
+    </script>
+  </body>
+</html>
