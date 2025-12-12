@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Solar System Model</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: black; }
+        #tooltip {
+            position: absolute;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 5px;
+            border-radius: 5px;
+            display: none;
+            pointer-events: none;
+        }
+        #launchRocket {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 10px;
+            background: white;
+            border: none;
+            cursor: pointer;
+        }
+        #datePicker {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 5px;
+        }
+        #credit {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            font-size: 14px;
+        }
+        #credit a {
+            color: white;
+            text-decoration: underline;
+        }
+    </style>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.167.1/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.167.1/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="tooltip"></div>
+    <input type="date" id="datePicker">
+    <button id="launchRocket">Launch Rocket</button>
+    <div id="credit">by <a href="https://marvinvr.ch" target="_blank">marvinvr</a></div>
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.25;
+        controls.target.set(0, 0, 0);
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.5;
+
+        controls.addEventListener('start', () => {
+            controls.autoRotate = false;
+        });
+
+        controls.addEventListener('end', () => {
+            controls.autoRotate = true;
+        });
+
+        const tooltip = document.getElementById('tooltip');
+        const launchRocketBtn = document.getElementById('launchRocket');
+        const datePicker = document.getElementById('datePicker');
+
+        const GM = 0.12;
+        const homing = 0.001; // Increased homing factor
+        const au_km = 149597870; // 1 AU in km
+        const earth_distance_units = 110; // Model Earth distance
+        const scale_km_per_unit = au_km / earth_distance_units;
+        const starship_speed_km_s = 30; // Approximate average speed for Starship to Mars in km/s
+        const seconds_per_day = 86400;
+
+        // Solar system data
+        const planetsData = [
+            { name: 'Sun', radius: 20, distance: 0, color: 0xffff00, ring: false, speed: 0 },
+            { name: 'Mercury', radius: 3, distance: 50, color: 0x808080, ring: false, speed: 0.04 },
+            { name: 'Venus', radius: 5, distance: 80, color: 0xffa500, ring: false, speed: 0.035 },
+            { name: 'Earth', radius: 6, distance: 110, color: 0x0000ff, ring: false, speed: 0.03 },
+            { name: 'Mars', radius: 4, distance: 140, color: 0xff0000, ring: false, speed: 0.025 },
+            { name: 'Jupiter', radius: 12, distance: 200, color: 0xa52a2a, ring: false, speed: 0.02 },
+            { name: 'Saturn', radius: 10, distance: 260, color: 0xffd700, ring: true, speed: 0.015 },
+            { name: 'Uranus', radius: 8, distance: 320, color: 0xadd8e6, ring: true, speed: 0.01 },
+            { name: 'Neptune', radius: 8, distance: 380, color: 0x00008b, ring: false, speed: 0.008 }
+        ];
+
+        const planets = []; // Moving planets
+        const bodies = []; // All including sun for hover
+        const orbits = [];
+        const asteroids = [];
+
+        // Helper functions
+        const degToRad = Math.PI / 180;
+        const radToDeg = 180 / Math.PI;
+        function sind(x) { return Math.sin(x * degToRad); }
+        function cosd(x) { return Math.cos(x * degToRad); }
+        function tand(x) { return Math.tan(x * degToRad); }
+        function atand(x) { return radToDeg * Math.atan(x); }
+        function atan2d(y, x) { return radToDeg * Math.atan2(y, x); }
+        function rev(x) { return x - Math.floor(x / 360) * 360; }
+
+        function solveKepler(M, e) {
+            M = rev(M);
+            let E = M + (radToDeg) * e * sind(M);
+            let dE;
+            do {
+                let dm = M - (E - (radToDeg) * e * sind(E));
+                dE = dm / (1 - e * cosd(E));
+                E += dE;
+            } while (Math.abs(dE) > 0.0001);
+            return E;
+        }
+
+        function trueAnomaly(E, e) {
+            let tan_v2 = Math.sqrt((1 + e) / (1 - e)) * tand(E / 2);
+            let v = 2 * atand(tan_v2);
+            return rev(v);
+        }
+
+        function getJD(date) {
+            let year = date.getUTCFullYear();
+            let month = date.getUTCMonth() + 1;
+            let day = date.getUTCDate();
+            if (month <= 2) {
+                year -= 1;
+                month += 12;
+            }
+            let a = Math.floor(year / 100);
+            let b = 2 - a + Math.floor(a / 4);
+            return Math.floor(365.25 * (year + 4716)) + Math.floor(30.6001 * (month + 1)) + day + b - 1524.5;
+        }
+
+        // Orbital data (functions of d)
+        const orbitalData = [
+            null, // Sun
+            { // Mercury
+                N: d => 48.3313 + 3.24587e-5 * d,
+                i: d => 7.0047 + 5.00e-8 * d,
+                w: d => 29.1241 + 1.01444e-5 * d,
+                a: d => 0.387098,
+                e: d => 0.205635 + 5.59e-10 * d,
+                M: d => 168.6562 + 4.0923344368 * d
+            },
+            { // Venus
+                N: d => 76.6799 + 2.46590e-5 * d,
+                i: d => 3.3946 + 2.75e-8 * d,
+                w: d => 54.8910 + 1.38374e-5 * d,
+                a: d => 0.723330,
+                e: d => 0.006773 - 1.302e-9 * d,
+                M: d => 48.0052 + 1.6021302244 * d
+            },
+            { // Earth
+                N: d => 0.0,
+                i: d => 0.0,
+                w: d => 282.9404 + 4.70935e-5 * d,
+                a: d => 1.000000,
+                e: d => 0.016709 - 1.151e-9 * d,
+                M: d => 356.0470 + 0.9856002585 * d
+            },
+            { // Mars
+                N: d => 49.5574 + 2.11081e-5 * d,
+                i: d => 1.8497 - 1.78e-8 * d,
+                w: d => 286.5016 + 2.92961e-5 * d,
+                a: d => 1.523688,
+                e: d => 0.093405 + 2.516e-9 * d,
+                M: d => 18.6021 + 0.5240207766 * d
+            },
+            { // Jupiter
+                N: d => 100.4542 + 2.76854e-5 * d,
+                i: d => 1.3030 - 1.557e-7 * d,
+                w: d => 273.8777 + 1.64505e-5 * d,
+                a: d => 5.20256,
+                e: d => 0.048498 + 4.469e-9 * d,
+                M: d => 19.8950 + 0.0830853001 * d
+            },
+            { // Saturn
+                N: d => 113.6634 + 2.38980e-5 * d,
+                i: d => 2.4886 - 1.081e-7 * d,
+                w: d => 339.3939 + 2.97661e-5 * d,
+                a: d => 9.55475,
+                e: d => 0.055546 - 9.499e-9 * d,
+                M: d => 316.9670 + 0.0334442282 * d
+            },
+            { // Uranus
+                N: d => 74.0005 + 1.3978e-5 * d,
+                i: d => 0.7733 + 1.9e-8 * d,
+                w: d => 96.6612 + 3.0565e-5 * d,
+                a: d => 19.18171 - 1.55e-8 * d,
+                e: d => 0.047318 + 7.45e-9 * d,
+                M: d => 142.5905 + 0.011725806 * d
+            },
+            { // Neptune
+                N: d => 131.7806 + 3.0173e-5 * d,
+                i: d => 1.7700 - 2.55e-7 * d,
+                w: d => 272.8461 + 6.027e-6 * d,
+                a: d => 30.05826 + 3.313e-8 * d,
+                e: d => 0.008606 + 2.15e-9 * d,
+                M: d => 260.2471 + 0.005995147 * d
+            }
+        ];
+
+        function updatePositions(selectedDate) {
+            const jd = getJD(selectedDate);
+            const d = jd - 2451543.5;
+
+            for (let i = 0; i < planets.length; i++) {
+                const orb = orbitalData[i + 1];
+                const modelData = planetsData[i + 1];
+                const N = rev(orb.N(d));
+                const inc = orb.i(d);
+                const w = rev(orb.w(d));
+                const a = orb.a(d);
+                const e = orb.e(d);
+                const MM = rev(orb.M(d));
+                const E = solveKepler(MM, e);
+                const v = trueAnomaly(E, e);
+                const r = a * (1 - e * e) / (1 + e * cosd(v)); // not used for position, but computed for completeness
+                const xh = r * (cosd(N) * cosd(v + w) - sind(N) * sind(v + w) * cosd(inc));
+                const yh = r * (sind(N) * cosd(v + w) + cosd(N) * sind(v + w) * cosd(inc));
+                const lon = atan2d(yh, xh);
+                const lon_rad = lon * degToRad;
+                planets[i].position.x = modelData.distance * Math.cos(lon_rad);
+                planets[i].position.z = modelData.distance * Math.sin(lon_rad);
+            }
+        }
+
+        // Add sun with accents
+        const sunGeometry = new THREE.SphereGeometry(planetsData[0].radius, 32, 16);
+        const sunColors = [];
+        const sunPos = sunGeometry.attributes.position.array;
+        for (let i = 0; i < sunPos.length; i += 3) {
+            const x = sunPos[i];
+            const y = sunPos[i + 1];
+            const z = sunPos[i + 2];
+            const noise = Math.sin(x * 2 + y) + Math.cos(z * 2 + y);
+            const color = noise > 0 ? new THREE.Color('yellow') : new THREE.Color('orange');
+            sunColors.push(color.r, color.g, color.b);
+        }
+        sunGeometry.setAttribute('color', new THREE.Float32BufferAttribute(sunColors, 3));
+        const sunMaterial = new THREE.MeshBasicMaterial({ vertexColors: true });
+        const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+        scene.add(sun);
+        bodies.push(sun);
+
+        // Add stars background
+        const starsGeometry = new THREE.BufferGeometry();
+        const starsMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.1 });
+        const starsVertices = [];
+        for (let i = 0; i < 5000; i++) {
+            const x = THREE.MathUtils.randFloatSpread(2000);
+            const y = THREE.MathUtils.randFloatSpread(2000);
+            const z = THREE.MathUtils.randFloatSpread(2000);
+            starsVertices.push(x, y, z);
+        }
+        starsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starsVertices, 3));
+        const stars = new THREE.Points(starsGeometry, starsMaterial);
+        scene.add(stars);
+
+        // Add planets and orbits
+        for (let i = 1; i < planetsData.length; i++) {
+            const data = planetsData[i];
+
+            // Orbit
+            const curve = new THREE.EllipseCurve(0, 0, data.distance, data.distance);
+            const points = curve.getPoints(100);
+            const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
+            const orbitMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2 });
+            const orbit = new THREE.Line(orbitGeometry, orbitMaterial);
+            orbit.rotation.x = Math.PI / 2;
+            scene.add(orbit);
+            orbits.push(orbit);
+
+            // Planet with accents
+            const geometry = new THREE.SphereGeometry(data.radius, 32, 16);
+            let material;
+            if (data.name === 'Earth') {
+                const colors = [];
+                const pos = geometry.attributes.position.array;
+                for (let j = 0; j < pos.length; j += 3) {
+                    const x = pos[j];
+                    const y = pos[j + 1];
+                    const z = pos[j + 2];
+                    const lat = Math.asin(y / data.radius);
+                    const lon = Math.atan2(z, x);
+                    const continentNoise = Math.sin(lon * 3) + Math.cos(lat * 5) + Math.sin((lon + lat) * 2);
+                    const oceanNoise = Math.sin(x * 10 + y * 5) + Math.cos(z * 10);
+                    const isLand = continentNoise > 0.5;
+                    const color = isLand ? new THREE.Color('green').add(new THREE.Color(oceanNoise * 0.1, oceanNoise * 0.1, 0)) : new THREE.Color('blue');
+                    colors.push(color.r, color.g, color.b);
+                }
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                material = new THREE.MeshBasicMaterial({ vertexColors: true });
+            } else if (data.name === 'Mars') {
+                const colors = [];
+                const pos = geometry.attributes.position.array;
+                for (let j = 0; j < pos.length; j += 3) {
+                    const x = pos[j];
+                    const y = pos[j + 1];
+                    const z = pos[j + 2];
+                    const lat = Math.abs(y) / data.radius;
+                    const craterNoise = Math.sin(x * 5 + z * 5) + Math.cos(y * 5 + z * 3);
+                    const baseColor = lat > 0.8 ? new THREE.Color('white') : new THREE.Color('red');
+                    const color = craterNoise > 1 ? baseColor.clone().multiplyScalar(0.8) : baseColor;
+                    colors.push(color.r, color.g, color.b);
+                }
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                material = new THREE.MeshBasicMaterial({ vertexColors: true });
+            } else if (data.name === 'Jupiter') {
+                const colors = [];
+                const pos = geometry.attributes.position.array;
+                for (let j = 0; j < pos.length; j += 3) {
+                    const y = pos[j + 1];
+                    const lat = Math.abs(y) / data.radius;
+                    let colorHex;
+                    if (lat > 0.8) colorHex = 0xeeeeee; // white-ish
+                    else if (lat > 0.6) colorHex = 0xa52a2a; // brown
+                    else if (lat > 0.4) colorHex = 0xffd700; // gold
+                    else if (lat > 0.2) colorHex = 0xa52a2a;
+                    else colorHex = 0xeeeeee;
+                    const color = new THREE.Color(colorHex);
+                    colors.push(color.r, color.g, color.b);
+                }
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                material = new THREE.MeshBasicMaterial({ vertexColors: true });
+            } else if (data.name === 'Saturn') {
+                const colors = [];
+                const pos = geometry.attributes.position.array;
+                for (let j = 0; j < pos.length; j += 3) {
+                    const y = pos[j + 1];
+                    const lat = Math.abs(y) / data.radius;
+                    let colorHex;
+                    if (lat > 0.7) colorHex = 0xffd700; // gold
+                    else if (lat > 0.4) colorHex = 0xdeb887; // light brown
+                    else colorHex = 0xffd700;
+                    const color = new THREE.Color(colorHex);
+                    colors.push(color.r, color.g, color.b);
+                }
+                geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+                material = new THREE.MeshBasicMaterial({ vertexColors: true });
+            } else {
+                material = new THREE.MeshBasicMaterial({ color: data.color });
+            }
+            const planet = new THREE.Mesh(geometry, material);
+            scene.add(planet);
+            planets.push(planet);
+            bodies.push(planet);
+
+            if (data.ring) {
+                const ringGeometry = new THREE.TorusGeometry(data.radius * 1.5, data.radius * 0.2, 2, 32);
+                const ringMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+                const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+                ring.rotation.x = Math.PI / 2;
+                planet.add(ring);
+            }
+        }
+
+        // Add ISS
+        const issGeometry = new THREE.BoxGeometry(1, 0.5, 2); // Small model for ISS
+        const issMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const iss = new THREE.Mesh(issGeometry, issMaterial);
+        iss.userData.rotationAngle = 0;
+        scene.add(iss);
+        bodies.push(iss);
+
+        // Add Moon
+        const moonGeometry = new THREE.SphereGeometry(2, 32, 16);
+        const moonMaterial = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+        const moon = new THREE.Mesh(moonGeometry, moonMaterial);
+        moon.userData.rotationAngle = 0;
+        scene.add(moon);
+        bodies.push(moon);
+
+        // Set default date to current
+        const today = new Date().toISOString().split('T')[0];
+        datePicker.value = today;
+        updatePositions(new Date());
+
+        datePicker.addEventListener('change', () => {
+            const selectedDate = new Date(datePicker.value);
+            updatePositions(selectedDate);
+        });
+
+        camera.position.set(300, 200, 400);
+
+        // Hover detection
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function onMouseMove(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects(bodies);
+
+            if (intersects.length > 0) {
+                const intersected = intersects[0].object;
+                const index = bodies.indexOf(intersected);
+                tooltip.textContent = index < planetsData.length ? planetsData[index].name : (index === 9 ? 'ISS' : 'Moon');
+                tooltip.style.display = 'block';
+                tooltip.style.left = `${event.clientX + 10}px`;
+                tooltip.style.top = `${event.clientY + 10}px`;
+            } else {
+                tooltip.style.display = 'none';
+            }
+        }
+
+        renderer.domElement.addEventListener('mousemove', onMouseMove);
+
+        // Asteroid launch variables
+        let holdTimeout = null;
+        let showerInterval = null;
+        let isShower = false;
+        let launchMouse = new THREE.Vector2();
+
+        function launchAsteroid(mx, my) {
+            mouse.x = mx;
+            mouse.y = my;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            let direction = raycaster.ray.direction.clone().normalize();
+
+            const startDistance = 600;
+            const startPos = direction.clone().multiplyScalar(startDistance);
+
+            const astGeo = new THREE.SphereGeometry(2, 16, 16);
+            const astMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa });
+            const ast = new THREE.Mesh(astGeo, astMat);
+            ast.position.copy(startPos);
+
+            let dir = direction.clone().negate();
+            dir.x += (Math.random() - 0.5) * 0.3;
+            dir.y += (Math.random() - 0.5) * 0.3;
+            dir.z += (Math.random() - 0.5) * 0.3;
+            dir.normalize();
+
+            ast.userData.velocity = dir.multiplyScalar(5);
+            ast.userData.trailPositions = [];
+
+            const trailMaterial = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5 });
+            const trailGeometry = new THREE.BufferGeometry();
+            const trail = new THREE.Line(trailGeometry, trailMaterial);
+            scene.add(trail);
+
+            ast.userData.trail = trail;
+
+            scene.add(ast);
+            asteroids.push(ast);
+        }
+
+        // Press and hold for shower
+        renderer.domElement.addEventListener('mousedown', (event) => {
+            if (event.button !== 0) return; // Left button only
+            launchMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            launchMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            holdTimeout = setTimeout(() => {
+                isShower = true;
+                controls.enabled = false;
+                showerInterval = setInterval(() => {
+                    launchAsteroid(launchMouse.x, launchMouse.y);
+                }, 100);
+            }, 300);
+        });
+
+        renderer.domElement.addEventListener('mouseup', (event) => {
+            if (event.button !== 0) return;
+            if (holdTimeout) {
+                clearTimeout(holdTimeout);
+            }
+            if (isShower) {
+                clearInterval(showerInterval);
+                isShower = false;
+                controls.enabled = true;
+            } else {
+                // Short click: launch single
+                launchAsteroid(launchMouse.x, launchMouse.y);
+            }
+        });
+
+        // Launch rocket
+        launchRocketBtn.addEventListener('click', () => {
+            const earthIndex = 2; // planets[2] = Earth
+            const marsIndex = 3; // planets[3] = Mars
+            const earthPos = planets[earthIndex].position.clone();
+            const marsData = planetsData[marsIndex + 1];
+            const rocketSpeed = 0.15; // Adjusted for better warping without hitting sun
+
+            // Aim directly at current Mars position since planet positions don't advance during simulation
+            let futureMars = planets[marsIndex].position.clone();
+
+            // Direction and velocity
+            let dir = futureMars.sub(earthPos).normalize();
+            let vel = dir.multiplyScalar(rocketSpeed);
+
+            // Create rocket as cylinder + cone along z
+            const rocketGroup = new THREE.Group();
+            const bodyGeo = new THREE.CylinderGeometry(0.8, 0.8, 4, 8);
+            const bodyMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.z = 2;
+            body.rotation.x = Math.PI / 2; // Rotate cylinder to along z
+            rocketGroup.add(body);
+
+            const noseGeo = new THREE.ConeGeometry(0.8, 1.5, 8);
+            const noseMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const nose = new THREE.Mesh(noseGeo, noseMat);
+            nose.position.z = 4.75;
+            nose.rotation.x = Math.PI / 2;
+            rocketGroup.add(nose);
+
+            const finGeo = new THREE.BoxGeometry(0.2, 0.5, 1);
+            const finMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            for (let k = 0; k < 4; k++) {
+                const fin = new THREE.Mesh(finGeo, finMat);
+                fin.position.set(Math.cos(k * Math.PI / 2) * 0.8, Math.sin(k * Math.PI / 2) * 0.8, 0.25);
+                fin.rotation.z = k * Math.PI / 2;
+                rocketGroup.add(fin);
+            }
+
+            rocketGroup.position.copy(earthPos);
+            rocketGroup.userData.velocity = vel;
+            rocketGroup.userData.trailPositions = [];
+            rocketGroup.userData.landed = false;
+            rocketGroup.userData.distance = 0;
+            rocketGroup.userData.travelSteps = 0;
+
+            // Initial orientation
+            rocketGroup.lookAt(rocketGroup.position.clone().add(vel));
+
+            const trailMaterial = new THREE.LineBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.5 });
+            const trailGeometry = new THREE.BufferGeometry();
+            const trail = new THREE.Line(trailGeometry, trailMaterial);
+            scene.add(trail);
+
+            rocketGroup.userData.trail = trail;
+
+            scene.add(rocketGroup);
+            asteroids.push(rocketGroup);
+        });
+
+        function animate(time = 0) {
+            requestAnimationFrame(animate);
+
+            // Update ISS orbit around Earth
+            const earth = planets[2];
+            const issOrbitRadius = planetsData[3].radius + 1; // Earth radius + small altitude
+            const issOrbitSpeed = 0.005; // 10x slower
+            iss.userData.rotationAngle += issOrbitSpeed;
+            iss.position.x = earth.position.x + issOrbitRadius * Math.cos(iss.userData.rotationAngle);
+            iss.position.y = 0;
+            iss.position.z = earth.position.z + issOrbitRadius * Math.sin(iss.userData.rotationAngle);
+
+            // Update Moon orbit around Earth
+            const moonOrbitRadius = planetsData[3].radius + 20;
+            const moonOrbitSpeed = 0.0016;
+            moon.userData.rotationAngle += moonOrbitSpeed;
+            moon.position.x = earth.position.x + moonOrbitRadius * Math.cos(moon.userData.rotationAngle);
+            moon.position.y = 0;
+            moon.position.z = earth.position.z + moonOrbitRadius * Math.sin(moon.userData.rotationAngle);
+
+            // Animate asteroids and rockets
+            for (let i = asteroids.length - 1; i >= 0; i--) {
+                const ast = asteroids[i];
+                if (ast.userData.landed) {
+                    ast.position.copy(planets[3].position);
+                } else {
+                    // Apply gravity if rocket
+                    if (ast.userData.hasOwnProperty('landed')) {
+                        const pos = ast.position;
+                        const r = pos.length();
+                        if (r > 0.0001) {
+                            const a_mag = -GM / (r * r);
+                            const a = pos.clone().normalize().multiplyScalar(a_mag);
+                            ast.userData.velocity.add(a);
+                        }
+
+                        // Add homing correction
+                        const correction = planets[3].position.clone().sub(ast.position).normalize().multiplyScalar(homing);
+                        ast.userData.velocity.add(correction);
+
+                        ast.userData.distance += ast.userData.velocity.length();
+                        ast.userData.travelSteps++;
+                    }
+
+                    ast.position.add(ast.userData.velocity);
+
+                    // Update orientation for rocket
+                    if (ast.userData.hasOwnProperty('landed')) {
+                        const direction = ast.userData.velocity.clone().normalize();
+                        if (direction.length() > 0) {
+                            ast.lookAt(ast.position.clone().add(direction));
+                        }
+                    }
+
+                    // Check if close to Mars if rocket
+                    if (ast.userData.hasOwnProperty('landed')) { // is rocket
+                        const dist = ast.position.distanceTo(planets[3].position);
+                        if (dist < 5) {
+                            ast.userData.landed = true;
+                            ast.userData.velocity.set(0, 0, 0);
+                            scene.remove(ast.userData.trail);
+                            ast.userData.trail = null;
+
+                            // Show notification
+                            const real_distance_km = ast.userData.distance * scale_km_per_unit;
+                            const days = real_distance_km / (starship_speed_km_s * seconds_per_day);
+                            const distance_km_formatted = real_distance_km.toFixed(0);
+                            const days_formatted = days.toFixed(0);
+
+                            let notif = document.createElement('div');
+                            notif.style.position = 'fixed';
+                            notif.style.bottom = '10px';
+                            notif.style.right = '10px';
+                            notif.style.background = 'rgba(0,0,0,0.7)';
+                            notif.style.color = 'white';
+                            notif.style.padding = '10px';
+                            notif.style.borderRadius = '5px';
+                            notif.textContent = `🚀 Rocket arrived! Travel time: ${days_formatted} days at Starship speed, Distance: ${distance_km_formatted} km`;
+                            document.body.appendChild(notif);
+                            setTimeout(() => { notif.remove(); }, 5000);
+                        }
+                    }
+                }
+
+                // Update trail only if not landed and trail exists
+                if (!ast.userData.landed && ast.userData.trail) {
+                    ast.userData.trailPositions.push(ast.position.clone());
+                    if (ast.userData.trailPositions.length > 50) {
+                        ast.userData.trailPositions.shift();
+                    }
+                    ast.userData.trail.geometry.setFromPoints(ast.userData.trailPositions);
+                }
+
+                if (ast.position.length() > 1000 && !ast.userData.landed) {
+                    scene.remove(ast);
+                    if (ast.userData.trail) {
+                        scene.remove(ast.userData.trail);
+                    }
+                    asteroids.splice(i, 1);
+                }
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
