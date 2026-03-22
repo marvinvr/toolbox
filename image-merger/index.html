@@ -23,7 +23,8 @@
         <h1 class="text-3xl font-bold mb-2">Image Merger</h1>
         <span class="text-gray-600 text-md">by <a href="https://marvinvr.ch" class="font-semibold hover:text-blue-500">marvinvr</a></span>
         <p class="text-gray-600 max-w-xl">
-          Drop an image on each side, use the slider to choose how much of each image you want, then download the merged result.
+          Drop an image on each side, then click on the preview to place points that define your split line.
+          Drag points to adjust, double-click to remove. Everything left of the line comes from the left image.
         </p>
       </div>
 
@@ -46,50 +47,45 @@
         </div>
       </div>
 
-      <div class="w-full max-w-2xl flex flex-col gap-2">
-        <div class="flex justify-between text-sm text-gray-600">
-          <span>Left</span>
-          <span>Split position: <strong id="splitLabel">50</strong>%</span>
-          <span>Right</span>
-        </div>
-        <input
-          type="range"
-          id="slider"
-          min="0"
-          max="100"
-          value="50"
-          class="w-full accent-blue-500"
-          oninput="updateSplit()"
+      <div class="flex gap-3">
+        <button
+          onclick="clearPoints()"
+          class="border border-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-50 transition-colors text-sm"
         >
+          Clear Split Line
+        </button>
+        <button
+          onclick="exportMerged()"
+          class="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 transition-colors disabled:bg-gray-300 text-sm"
+          id="exportBtn"
+          disabled
+        >
+          Download Merged Image
+        </button>
       </div>
 
-      <div class="w-full max-w-4xl relative">
+      <div class="w-full max-w-4xl">
         <canvas
           id="mergeCanvas"
           width="1200"
           height="600"
-          class="border border-gray-300 w-full"
+          class="border border-gray-300 w-full cursor-crosshair"
         ></canvas>
-        <div id="splitLine" class="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none" style="left:50%; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>
       </div>
-
-      <button
-        onclick="exportMerged()"
-        class="bg-blue-500 text-white py-2 px-6 rounded hover:bg-blue-600 transition-colors disabled:bg-gray-300"
-        id="exportBtn"
-        disabled
-      >
-        Download Merged Image
-      </button>
     </div>
 
     <script>
       let leftImage = null;
       let rightImage = null;
+      let points = []; // {x, y} in canvas coordinates
+      let draggingIndex = -1;
+      const POINT_RADIUS = 7;
+      const GRAB_RADIUS = 14;
+
       const canvas = document.getElementById('mergeCanvas');
       const ctx = canvas.getContext('2d');
 
-      // Draw placeholder
+      // --- Placeholder ---
       function drawPlaceholder() {
         ctx.fillStyle = '#f5f5f5';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -101,26 +97,16 @@
       }
       drawPlaceholder();
 
-      // Drag and drop setup
+      // --- Drag-and-drop for image upload ---
       ['left', 'right'].forEach(side => {
         const zone = document.getElementById(side + 'Drop');
-
-        zone.addEventListener('dragover', e => {
-          e.preventDefault();
-          zone.classList.add('dragover');
-        });
-
-        zone.addEventListener('dragleave', () => {
-          zone.classList.remove('dragover');
-        });
-
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+        zone.addEventListener('dragleave', () => { zone.classList.remove('dragover'); });
         zone.addEventListener('drop', e => {
           e.preventDefault();
           zone.classList.remove('dragover');
           const file = e.dataTransfer.files[0];
-          if (file && file.type.startsWith('image/')) {
-            handleFile(side, file);
-          }
+          if (file && file.type.startsWith('image/')) handleFile(side, file);
         });
       });
 
@@ -133,14 +119,13 @@
             if (side === 'left') leftImage = img;
             else rightImage = img;
 
-            // Show thumbnail in drop zone
             const zone = document.getElementById(side + 'Drop');
             zone.classList.add('has-image');
             zone.innerHTML = '<img src="' + e.target.result + '" class="w-full h-full object-cover rounded-md max-h-[170px]">';
             zone.onclick = () => document.getElementById(side + 'File').click();
 
             resizeCanvas();
-            drawMerge();
+            render();
             updateExportButton();
           };
           img.src = e.target.result;
@@ -152,7 +137,6 @@
         if (leftImage && rightImage) {
           const h = Math.max(leftImage.height, rightImage.height);
           const w = Math.max(leftImage.width, rightImage.width);
-          // Cap to reasonable size
           const maxW = 2400, maxH = 1600;
           const scale = Math.min(1, maxW / w, maxH / h);
           canvas.width = Math.round(w * scale);
@@ -168,50 +152,34 @@
         }
       }
 
-      function drawMerge() {
-        const split = parseInt(document.getElementById('slider').value) / 100;
-        const cw = canvas.width;
-        const ch = canvas.height;
-        const splitX = Math.round(cw * split);
-
-        ctx.clearRect(0, 0, cw, ch);
-
-        // Draw left image (clipped to left portion)
-        if (leftImage) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(0, 0, splitX, ch);
-          ctx.clip();
-          drawCover(ctx, leftImage, 0, 0, cw, ch);
-          ctx.restore();
-        } else {
-          ctx.fillStyle = '#e5e5e5';
-          ctx.fillRect(0, 0, splitX, ch);
-        }
-
-        // Draw right image (clipped to right portion)
-        if (rightImage) {
-          ctx.save();
-          ctx.beginPath();
-          ctx.rect(splitX, 0, cw - splitX, ch);
-          ctx.clip();
-          drawCover(ctx, rightImage, 0, 0, cw, ch);
-          ctx.restore();
-        } else {
-          ctx.fillStyle = '#e5e5e5';
-          ctx.fillRect(splitX, 0, cw - splitX, ch);
-        }
-
-        // Update split line position
-        const line = document.getElementById('splitLine');
-        line.style.left = (split * 100) + '%';
+      // --- Split path logic ---
+      function getSortedPoints() {
+        return [...points].sort((a, b) => a.y - b.y);
       }
 
+      function getSplitPath() {
+        const sorted = getSortedPoints();
+        if (sorted.length === 0) {
+          // Default vertical split at 50%
+          return [
+            { x: canvas.width / 2, y: 0 },
+            { x: canvas.width / 2, y: canvas.height }
+          ];
+        }
+        const path = [];
+        // Extend to top edge using the topmost point's x
+        path.push({ x: sorted[0].x, y: 0 });
+        for (const p of sorted) path.push(p);
+        // Extend to bottom edge using the bottommost point's x
+        path.push({ x: sorted[sorted.length - 1].x, y: canvas.height });
+        return path;
+      }
+
+      // --- Drawing ---
       function drawCover(ctx, img, x, y, w, h) {
         const imgRatio = img.width / img.height;
         const canvasRatio = w / h;
         let sx, sy, sw, sh;
-
         if (imgRatio > canvasRatio) {
           sh = img.height;
           sw = sh * canvasRatio;
@@ -223,15 +191,173 @@
           sx = 0;
           sy = (img.height - sh) / 2;
         }
-
         ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
       }
 
-      function updateSplit() {
-        document.getElementById('splitLabel').textContent = document.getElementById('slider').value;
-        if (leftImage || rightImage) {
-          drawMerge();
+      function drawMerge() {
+        const cw = canvas.width;
+        const ch = canvas.height;
+        const splitPath = getSplitPath();
+
+        ctx.clearRect(0, 0, cw, ch);
+
+        // Left image: clipped to left of split path
+        if (leftImage) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          for (const p of splitPath) ctx.lineTo(p.x, p.y);
+          ctx.lineTo(0, ch);
+          ctx.closePath();
+          ctx.clip();
+          drawCover(ctx, leftImage, 0, 0, cw, ch);
+          ctx.restore();
+        } else {
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          for (const p of splitPath) ctx.lineTo(p.x, p.y);
+          ctx.lineTo(0, ch);
+          ctx.closePath();
+          ctx.fillStyle = '#e5e5e5';
+          ctx.fill();
+          ctx.restore();
         }
+
+        // Right image: clipped to right of split path
+        if (rightImage) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(splitPath[0].x, splitPath[0].y);
+          ctx.lineTo(cw, 0);
+          ctx.lineTo(cw, ch);
+          ctx.lineTo(splitPath[splitPath.length - 1].x, splitPath[splitPath.length - 1].y);
+          for (let i = splitPath.length - 2; i >= 0; i--) {
+            ctx.lineTo(splitPath[i].x, splitPath[i].y);
+          }
+          ctx.closePath();
+          ctx.clip();
+          drawCover(ctx, rightImage, 0, 0, cw, ch);
+          ctx.restore();
+        } else {
+          ctx.save();
+          ctx.beginPath();
+          ctx.moveTo(splitPath[0].x, splitPath[0].y);
+          ctx.lineTo(cw, 0);
+          ctx.lineTo(cw, ch);
+          ctx.lineTo(splitPath[splitPath.length - 1].x, splitPath[splitPath.length - 1].y);
+          for (let i = splitPath.length - 2; i >= 0; i--) {
+            ctx.lineTo(splitPath[i].x, splitPath[i].y);
+          }
+          ctx.closePath();
+          ctx.fillStyle = '#e5e5e5';
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      function drawUI() {
+        const splitPath = getSplitPath();
+
+        // Draw split line
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(splitPath[0].x, splitPath[0].y);
+        for (let i = 1; i < splitPath.length; i++) {
+          ctx.lineTo(splitPath[i].x, splitPath[i].y);
+        }
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+
+        // Draw points
+        for (const p of points) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, POINT_RADIUS, 0, Math.PI * 2);
+          ctx.fillStyle = 'white';
+          ctx.fill();
+          ctx.strokeStyle = '#333';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
+      }
+
+      function render() {
+        if (!leftImage && !rightImage) { drawPlaceholder(); return; }
+        drawMerge();
+        drawUI();
+      }
+
+      // --- Canvas interaction ---
+      function getCanvasPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: (e.clientX - rect.left) * (canvas.width / rect.width),
+          y: (e.clientY - rect.top) * (canvas.height / rect.height)
+        };
+      }
+
+      function findPointNear(pos) {
+        for (let i = 0; i < points.length; i++) {
+          const dx = points[i].x - pos.x;
+          const dy = points[i].y - pos.y;
+          if (Math.sqrt(dx * dx + dy * dy) < GRAB_RADIUS) return i;
+        }
+        return -1;
+      }
+
+      canvas.addEventListener('mousedown', e => {
+        if (!leftImage && !rightImage) return;
+        const pos = getCanvasPos(e);
+        const idx = findPointNear(pos);
+        if (idx >= 0) {
+          draggingIndex = idx;
+          canvas.style.cursor = 'grabbing';
+        } else {
+          points.push({ x: pos.x, y: pos.y });
+          draggingIndex = points.length - 1;
+          render();
+        }
+      });
+
+      canvas.addEventListener('mousemove', e => {
+        if (draggingIndex < 0) {
+          // Update cursor
+          const pos = getCanvasPos(e);
+          canvas.style.cursor = findPointNear(pos) >= 0 ? 'grab' : 'crosshair';
+          return;
+        }
+        const pos = getCanvasPos(e);
+        points[draggingIndex].x = Math.max(0, Math.min(canvas.width, pos.x));
+        points[draggingIndex].y = Math.max(0, Math.min(canvas.height, pos.y));
+        render();
+      });
+
+      canvas.addEventListener('mouseup', () => {
+        draggingIndex = -1;
+        canvas.style.cursor = 'crosshair';
+      });
+
+      canvas.addEventListener('mouseleave', () => {
+        draggingIndex = -1;
+      });
+
+      canvas.addEventListener('dblclick', e => {
+        const pos = getCanvasPos(e);
+        const idx = findPointNear(pos);
+        if (idx >= 0) {
+          points.splice(idx, 1);
+          render();
+        }
+      });
+
+      function clearPoints() {
+        points = [];
+        render();
       }
 
       function updateExportButton() {
@@ -240,10 +366,13 @@
 
       function exportMerged() {
         if (!leftImage || !rightImage) return;
+        // Draw without UI, export, then redraw with UI
+        drawMerge();
         const link = document.createElement('a');
         link.download = 'merged-image.png';
         link.href = canvas.toDataURL('image/png');
         link.click();
+        render();
       }
     </script>
   </body>
