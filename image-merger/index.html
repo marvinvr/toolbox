@@ -1,0 +1,250 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Image Merger</title>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+      .drop-zone {
+        @apply border-2 border-dashed border-gray-300 rounded-lg p-6 flex flex-col items-center justify-center text-gray-500 cursor-pointer transition-colors min-h-[180px];
+      }
+      .drop-zone:hover, .drop-zone.dragover {
+        @apply border-blue-500 bg-blue-50 text-blue-600;
+      }
+      .drop-zone.has-image {
+        @apply border-solid border-gray-300 p-1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="flex flex-col items-center justify-center min-h-screen p-4 gap-8">
+      <div class="flex flex-col items-center text-center mb-4">
+        <h1 class="text-3xl font-bold mb-2">Image Merger</h1>
+        <span class="text-gray-600 text-md">by <a href="https://marvinvr.ch" class="font-semibold hover:text-blue-500">marvinvr</a></span>
+        <p class="text-gray-600 max-w-xl">
+          Drop an image on each side, use the slider to choose how much of each image you want, then download the merged result.
+        </p>
+      </div>
+
+      <div class="flex gap-4 w-full max-w-2xl">
+        <div class="flex-1 flex flex-col gap-2">
+          <label class="text-sm font-medium">Left Image</label>
+          <div class="drop-zone" id="leftDrop" onclick="document.getElementById('leftFile').click()">
+            <svg class="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <span class="text-sm">Drop or click</span>
+          </div>
+          <input type="file" id="leftFile" accept="image/*" class="hidden" onchange="handleFile('left', this.files[0])">
+        </div>
+        <div class="flex-1 flex flex-col gap-2">
+          <label class="text-sm font-medium">Right Image</label>
+          <div class="drop-zone" id="rightDrop" onclick="document.getElementById('rightFile').click()">
+            <svg class="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <span class="text-sm">Drop or click</span>
+          </div>
+          <input type="file" id="rightFile" accept="image/*" class="hidden" onchange="handleFile('right', this.files[0])">
+        </div>
+      </div>
+
+      <div class="w-full max-w-2xl flex flex-col gap-2">
+        <div class="flex justify-between text-sm text-gray-600">
+          <span>Left</span>
+          <span>Split position: <strong id="splitLabel">50</strong>%</span>
+          <span>Right</span>
+        </div>
+        <input
+          type="range"
+          id="slider"
+          min="0"
+          max="100"
+          value="50"
+          class="w-full accent-blue-500"
+          oninput="updateSplit()"
+        >
+      </div>
+
+      <div class="w-full max-w-4xl relative">
+        <canvas
+          id="mergeCanvas"
+          width="1200"
+          height="600"
+          class="border border-gray-300 w-full"
+        ></canvas>
+        <div id="splitLine" class="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none" style="left:50%; box-shadow: 0 0 4px rgba(0,0,0,0.5);"></div>
+      </div>
+
+      <button
+        onclick="exportMerged()"
+        class="bg-blue-500 text-white py-2 px-6 rounded hover:bg-blue-600 transition-colors disabled:bg-gray-300"
+        id="exportBtn"
+        disabled
+      >
+        Download Merged Image
+      </button>
+    </div>
+
+    <script>
+      let leftImage = null;
+      let rightImage = null;
+      const canvas = document.getElementById('mergeCanvas');
+      const ctx = canvas.getContext('2d');
+
+      // Draw placeholder
+      function drawPlaceholder() {
+        ctx.fillStyle = '#f5f5f5';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#aaa';
+        ctx.font = '22px -apple-system, BlinkMacSystemFont, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Drop images above to preview the merge', canvas.width / 2, canvas.height / 2);
+      }
+      drawPlaceholder();
+
+      // Drag and drop setup
+      ['left', 'right'].forEach(side => {
+        const zone = document.getElementById(side + 'Drop');
+
+        zone.addEventListener('dragover', e => {
+          e.preventDefault();
+          zone.classList.add('dragover');
+        });
+
+        zone.addEventListener('dragleave', () => {
+          zone.classList.remove('dragover');
+        });
+
+        zone.addEventListener('drop', e => {
+          e.preventDefault();
+          zone.classList.remove('dragover');
+          const file = e.dataTransfer.files[0];
+          if (file && file.type.startsWith('image/')) {
+            handleFile(side, file);
+          }
+        });
+      });
+
+      function handleFile(side, file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const img = new Image();
+          img.onload = function() {
+            if (side === 'left') leftImage = img;
+            else rightImage = img;
+
+            // Show thumbnail in drop zone
+            const zone = document.getElementById(side + 'Drop');
+            zone.classList.add('has-image');
+            zone.innerHTML = '<img src="' + e.target.result + '" class="w-full h-full object-cover rounded-md max-h-[170px]">';
+            zone.onclick = () => document.getElementById(side + 'File').click();
+
+            resizeCanvas();
+            drawMerge();
+            updateExportButton();
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+
+      function resizeCanvas() {
+        if (leftImage && rightImage) {
+          const h = Math.max(leftImage.height, rightImage.height);
+          const w = Math.max(leftImage.width, rightImage.width);
+          // Cap to reasonable size
+          const maxW = 2400, maxH = 1600;
+          const scale = Math.min(1, maxW / w, maxH / h);
+          canvas.width = Math.round(w * scale);
+          canvas.height = Math.round(h * scale);
+        } else if (leftImage) {
+          const scale = Math.min(1, 2400 / leftImage.width, 1600 / leftImage.height);
+          canvas.width = Math.round(leftImage.width * scale);
+          canvas.height = Math.round(leftImage.height * scale);
+        } else if (rightImage) {
+          const scale = Math.min(1, 2400 / rightImage.width, 1600 / rightImage.height);
+          canvas.width = Math.round(rightImage.width * scale);
+          canvas.height = Math.round(rightImage.height * scale);
+        }
+      }
+
+      function drawMerge() {
+        const split = parseInt(document.getElementById('slider').value) / 100;
+        const cw = canvas.width;
+        const ch = canvas.height;
+        const splitX = Math.round(cw * split);
+
+        ctx.clearRect(0, 0, cw, ch);
+
+        // Draw left image (clipped to left portion)
+        if (leftImage) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, splitX, ch);
+          ctx.clip();
+          drawCover(ctx, leftImage, 0, 0, cw, ch);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#e5e5e5';
+          ctx.fillRect(0, 0, splitX, ch);
+        }
+
+        // Draw right image (clipped to right portion)
+        if (rightImage) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(splitX, 0, cw - splitX, ch);
+          ctx.clip();
+          drawCover(ctx, rightImage, 0, 0, cw, ch);
+          ctx.restore();
+        } else {
+          ctx.fillStyle = '#e5e5e5';
+          ctx.fillRect(splitX, 0, cw - splitX, ch);
+        }
+
+        // Update split line position
+        const line = document.getElementById('splitLine');
+        line.style.left = (split * 100) + '%';
+      }
+
+      function drawCover(ctx, img, x, y, w, h) {
+        const imgRatio = img.width / img.height;
+        const canvasRatio = w / h;
+        let sx, sy, sw, sh;
+
+        if (imgRatio > canvasRatio) {
+          sh = img.height;
+          sw = sh * canvasRatio;
+          sx = (img.width - sw) / 2;
+          sy = 0;
+        } else {
+          sw = img.width;
+          sh = sw / canvasRatio;
+          sx = 0;
+          sy = (img.height - sh) / 2;
+        }
+
+        ctx.drawImage(img, sx, sy, sw, sh, x, y, w, h);
+      }
+
+      function updateSplit() {
+        document.getElementById('splitLabel').textContent = document.getElementById('slider').value;
+        if (leftImage || rightImage) {
+          drawMerge();
+        }
+      }
+
+      function updateExportButton() {
+        document.getElementById('exportBtn').disabled = !(leftImage && rightImage);
+      }
+
+      function exportMerged() {
+        if (!leftImage || !rightImage) return;
+        const link = document.createElement('a');
+        link.download = 'merged-image.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      }
+    </script>
+  </body>
+</html>
