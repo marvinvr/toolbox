@@ -1,0 +1,13 @@
+# Keep repo metadata out of the image (everything else is served by nginx)
+.git
+.github
+.gitignore
+.dockerignore
+renovate.json
+Dockerfile
+README.md
+**/README.md
+**/LICENSE
+**/CLAUDE.md
+**/Dockerfile
+AGENTS.md
